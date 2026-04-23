@@ -131,7 +131,11 @@ class CodingAgent:
             if resp.name == "refuse!":
                 await client.bye()
                 raise RuntimeError("server has no default model")
-            model = resp.args[2] if len(resp.args) > 2 else resp.args[1]
+            # default_model!(mid, name, flavor) — pick the name.
+            if len(resp.args) < 2 or not resp.args[1]:
+                await client.bye()
+                raise RuntimeError("server returned empty default model name")
+            model = resp.args[1]
 
         mid = client.next_id()
         resp = await _simple_request(client, "chat?", str(mid))
