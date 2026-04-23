@@ -66,7 +66,7 @@ class _Stub(Backend):
     def default_model(self, flavor):
         return self._default
 
-    async def stream_complete(self, model, messages):
+    async def stream_complete(self, model, messages, usage_out=None):
         self.last_call = (model, list(messages))
         for d in self._deltas:
             yield ("assistant", f"{self._tag}:{d}")

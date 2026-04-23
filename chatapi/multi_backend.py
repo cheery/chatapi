@@ -86,10 +86,10 @@ class MultiBackend(Backend):
         return None
 
     async def stream_complete(
-        self, model: str, messages: list[CFMessage]
+        self, model: str, messages: list[CFMessage], usage_out: dict | None = None,
     ) -> AsyncIterator[tuple[str, str]]:
         backend, native = self._resolve(model)
-        async for chunk in backend.stream_complete(native, messages):
+        async for chunk in backend.stream_complete(native, messages, usage_out=usage_out):
             yield chunk
 
     async def context_limit(

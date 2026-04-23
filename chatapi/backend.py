@@ -27,12 +27,16 @@ class Backend(Protocol):
     def default_model(self, flavor: str | None) -> ModelInfo | None: ...
 
     def stream_complete(
-        self, model: str, messages: list[CFMessage]
+        self, model: str, messages: list[CFMessage], usage_out: dict | None = None,
     ) -> AsyncIterator[tuple[str, str]]:
         """Yield (tag, delta) pairs. Tag is a chatfmt message tag such as
         'think' or 'assistant'; delta is a text fragment to append within
         the current block. Consecutive yields with the same tag belong to
-        the same logical block; a tag change opens a new block."""
+        the same logical block; a tag change opens a new block.
+
+        If usage_out is supplied, the backend may write known usage figures
+        into it (e.g. {"output_tokens": N}) for the server to surface on the
+        wire. Backends that cannot report usage simply leave it empty."""
         ...
 
     async def context_limit(

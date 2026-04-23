@@ -57,7 +57,7 @@ class AnthropicBackend(Backend):
         return ModelInfo(name=DEFAULT_CHAT_MODEL, flavor="chat")
 
     async def stream_complete(
-        self, model: str, messages: list[CFMessage]
+        self, model: str, messages: list[CFMessage], usage_out: dict | None = None,
     ) -> AsyncIterator[tuple[str, str]]:
         system, msgs = _to_anthropic(messages)
         kwargs: dict = {
@@ -71,15 +71,20 @@ class AnthropicBackend(Backend):
         try:
             async with self._client.messages.stream(**kwargs) as stream:
                 async for event in stream:
-                    if getattr(event, "type", None) != "content_block_delta":
-                        continue
-                    delta = event.delta
-                    dtype = getattr(delta, "type", None)
-                    if dtype == "thinking_delta":
-                        yield ("think", delta.thinking)
-                    elif dtype == "text_delta":
-                        yield ("assistant", delta.text)
-                    # signature_delta and other delta types are ignored for v0.
+                    etype = getattr(event, "type", None)
+                    if etype == "content_block_delta":
+                        delta = event.delta
+                        dtype = getattr(delta, "type", None)
+                        if dtype == "thinking_delta":
+                            yield ("think", delta.thinking)
+                        elif dtype == "text_delta":
+                            yield ("assistant", delta.text)
+                        # signature_delta and other delta types are ignored for v0.
+                    elif etype == "message_delta" and usage_out is not None:
+                        usage = getattr(event, "usage", None)
+                        out_tokens = getattr(usage, "output_tokens", None)
+                        if out_tokens is not None:
+                            usage_out["output_tokens"] = out_tokens
         except anthropic.BadRequestError as e:
             msg = str(e).lower()
             if "context" in msg or "too long" in msg or "max_tokens" in msg:

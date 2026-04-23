@@ -24,7 +24,7 @@ class FakeBackend(Backend):
     def default_model(self, flavor):
         return ModelInfo("fake-smart", "chat")
 
-    async def stream_complete(self, model, messages) -> AsyncIterator[tuple[str, str]]:
+    async def stream_complete(self, model, messages, usage_out=None) -> AsyncIterator[tuple[str, str]]:
         self.calls.append((model, list(messages)))
         # Emit one think block followed by an assistant block.
         yield ("think", "let me ")
@@ -32,6 +32,8 @@ class FakeBackend(Backend):
         yield ("assistant", "hel")
         yield ("assistant", "lo, ")
         yield ("assistant", "world!")
+        if usage_out is not None:
+            usage_out["output_tokens"] = 7
 
     async def context_limit(self, model, messages):
         raise ContextLimitUnknown(model)
@@ -96,12 +98,26 @@ async def test_full_round_trip(server_socket):
     msgs = await _drain(client.request("complete?", "12", sid, payload=b""))
     chunks = [chatfmt.decode_message(m.payload) for m in msgs if m.name == "complete*!"]
     # Wire shape: first chunk per block carries the tag; follow-ons use '_'.
-    assert [c.tag for c in chunks] == ["think", "_", "assistant", "_", "_"]
+    # The trailing '_' chunk carries server-side timing/usage meta.
+    assert [c.tag for c in chunks] == ["think", "_", "assistant", "_", "_", "_"]
     blocks = chatfmt.merge_chunks(chunks)
     assert [(b.tag, b.body) for b in blocks] == [
         ("think", "let me think..."),
         ("assistant", "hello, world!"),
     ]
+    # Final assistant block accumulates the trailing meta.
+    assistant_meta = blocks[1].meta
+    assert assistant_meta["tokens"] == 7
+    assert isinstance(assistant_meta["at"], str)
+    # ISO 8601 in UTC, minute precision: e.g. "2026-04-23T12:34+00:00".
+    assert assistant_meta["at"].endswith("+00:00")
+    assert "T" in assistant_meta["at"]
+    # No seconds/microseconds — exactly one ':' on each side of T (HH:MM, +00:00).
+    date_part, _, rest = assistant_meta["at"].partition("T")
+    time_part = rest.removesuffix("+00:00")
+    assert time_part.count(":") == 1 and "." not in time_part
+    assert isinstance(assistant_meta["time"], float)
+    assert assistant_meta["time"] >= 0.0
     assert msgs[-1].name == "complete!"
     # backend received the user message
     model, history = backend.calls[-1]
@@ -133,7 +149,7 @@ async def test_complete_aborts_cleanly(server_socket):
     sock, _ = server_socket
 
     class SlowBackend(FakeBackend):
-        async def stream_complete(self, model, messages):
+        async def stream_complete(self, model, messages, usage_out=None):
             for chunk in ("a", "b", "c"):
                 yield ("assistant", chunk)
                 await asyncio.sleep(0.05)

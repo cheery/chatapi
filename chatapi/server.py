@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
 from . import chatfmt, protocol
@@ -243,8 +245,12 @@ async def _h_complete(conn: Connection, msg: protocol.Message) -> None:
     # accumulate body and meta into the open block. Session history records
     # the merged blocks via chatfmt.merge_chunks.
     chunks: list[chatfmt.CFMessage] = []
+    usage: dict = {}
+    t0 = time.monotonic()
     try:
-        async for tag, delta in conn.backend.stream_complete(session.model, session.messages):
+        async for tag, delta in conn.backend.stream_complete(
+            session.model, session.messages, usage_out=usage,
+        ):
             if chunks and chunks[-1].tag != chatfmt.CONT_TAG and chunks[-1].tag == tag:
                 chunk_msg = chatfmt.cont(content=delta)
             elif chunks and chunks[-1].tag == chatfmt.CONT_TAG and _last_block_tag(chunks) == tag:
@@ -263,6 +269,18 @@ async def _h_complete(conn: Connection, msg: protocol.Message) -> None:
         # abort? cancelled this task; emit aborted! for the original message.
         await conn.sender.send("aborted!", mid, session.id, payload=b"")
         raise
+
+    if chunks:
+        at_iso = datetime.now(timezone.utc).isoformat(timespec="minutes")
+        meta_kwargs: dict = {"_at": at_iso, "_time": time.monotonic() - t0}
+        if "output_tokens" in usage:
+            meta_kwargs["_tokens"] = usage["output_tokens"]
+        trailing = chatfmt.cont(**meta_kwargs)
+        chunks.append(trailing)
+        await conn.sender.send(
+            "complete*!", mid, session.id,
+            payload=chatfmt.encode_message(trailing),
+        )
 
     session.messages.extend(chatfmt.merge_chunks(chunks))
     await conn.sender.send("complete!", mid, session.id, payload=b"")
