@@ -64,7 +64,7 @@ def _write_schema() -> str:
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "Relative or absolute path to the file"},
-            "content": {"type": "string", "description": "Content to write"},
+            "content": {"type": "string", "description": "Content to write, literally written as it."},
         },
         "required": ["path", "content"],
     })

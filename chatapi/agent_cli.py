@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import difflib
 import json
 import signal
 import sys
 from pathlib import Path
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
@@ -28,7 +29,7 @@ Guidelines:
 - Use bash for file operations like ls, grep, find
 - Use read to examine files before editing
 - Use edit for precise changes (old text must match exactly)
-- Use write only for new files or complete rewrites
+- Use write only for new files or complete rewrites.
 - When summarizing your actions, output plain text directly - do NOT use cat or bash to display what you did
 - Be concise in your responses
 - Show file paths clearly when working with files
@@ -48,6 +49,9 @@ _ANSI_DIM_ITALIC = "\033[2;3m"
 _ANSI_RESET = "\033[0m"
 
 
+_TOOL_STYLE = "yellow"
+
+
 def _fmt_tool_input(text: str):
     text = text or ""
     try:
@@ -61,6 +65,109 @@ def _fmt_tool_input(text: str):
         theme="ansi_dark",
         background_color="default",
         word_wrap=True,
+    )
+
+
+def _parse_args(raw: str) -> dict:
+    try:
+        obj = json.loads(raw or "{}")
+    except Exception:
+        return {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _render_bash(args: dict) -> Text:
+    cmd = str(args.get("command", ""))
+    text = Text()
+    lines = cmd.split("\n")
+    first = lines[0] if lines else ""
+    text.append(f"$ {first}", style=_TOOL_STYLE)
+    for cont in lines[1:]:
+        text.append("\n")
+        text.append(f"  {cont}", style=_TOOL_STYLE)
+    timeout = args.get("timeout")
+    if timeout is not None:
+        text.append(f"  (timeout={timeout}s)", style=f"{_TOOL_STYLE} dim")
+    return text
+
+
+def _render_write(args: dict) -> Text:
+    path = str(args.get("path", ""))
+    content = args.get("content", "") or ""
+    text = Text()
+    text.append(f"> {path}", style=_TOOL_STYLE)
+    text.append(f"  ({len(content)} chars)", style=f"{_TOOL_STYLE} dim")
+    return text
+
+
+def _render_read(args: dict) -> Text:
+    path = str(args.get("path", ""))
+    offset = args.get("offset")
+    limit = args.get("limit")
+    text = Text()
+    text.append(f"read {path}", style=_TOOL_STYLE)
+    extras = []
+    if offset is not None:
+        extras.append(f"offset={offset}")
+    if limit is not None:
+        extras.append(f"limit={limit}")
+    if extras:
+        text.append(f"  ({', '.join(extras)})", style=f"{_TOOL_STYLE} dim")
+    return text
+
+
+def _render_edit(args: dict):
+    path = str(args.get("path", ""))
+    old = args.get("oldText", "") or ""
+    new = args.get("newText", "") or ""
+
+    def _lines(s: str) -> list[str]:
+        out = s.splitlines(keepends=True)
+        if out and not out[-1].endswith("\n"):
+            out[-1] = out[-1] + "\n"
+        elif not out:
+            out = ["\n"]
+        return out
+
+    header = Text(f"edit {path}\n", style=_TOOL_STYLE)
+    body = Text()
+    for line in difflib.unified_diff(_lines(old), _lines(new), n=3, lineterm=""):
+        if line.startswith("---") or line.startswith("+++"):
+            continue
+        # unified_diff with lineterm="" drops the terminator; add our own.
+        out_line = line if line.endswith("\n") else line + "\n"
+        if out_line.startswith("@@"):
+            body.append(out_line, style="cyan")
+        elif out_line.startswith("+"):
+            body.append(out_line, style="green")
+        elif out_line.startswith("-"):
+            body.append(out_line, style="red")
+        else:
+            body.append(out_line)
+    return Group(header, body)
+
+
+_TOOL_RENDERERS = {
+    "bash": _render_bash,
+    "write": _render_write,
+    "read": _render_read,
+    "edit": _render_edit,
+}
+
+
+def _render_tool_call(event: StreamEvent):
+    args = _parse_args(event.text)
+    renderer = _TOOL_RENDERERS.get(event.tool_name)
+    if renderer is not None:
+        return renderer(args)
+    # Fallback for unknown tools: keep the JSON panel.
+    return Panel(
+        _fmt_tool_input(event.text),
+        title=Text.from_markup(
+            f"[bold yellow]→ call[/]  [cyan]{event.tool_name}[/]"
+        ),
+        border_style="yellow",
+        expand=False,
     )
 
 
@@ -233,8 +340,6 @@ class AgentCLI:
 
     async def _consume(self, text: str) -> None:
         self._stream_tag = None
-        tool_counter = 0
-        pending: dict[str, int] = {}
 
         self.console.rule(style="bright_black")
 
@@ -251,20 +356,10 @@ class AgentCLI:
                     sys.stdout.flush()
                 elif event.kind == "tool_call":
                     self._end_stream_if_open()
-                    tool_counter += 1
-                    pending[event.call_id] = tool_counter
-                    self.console.print(
-                        Panel(
-                            _fmt_tool_input(event.text),
-                            title=Text.from_markup(
-                                f"[bold yellow]→ call[/]  [cyan]{event.tool_name}[/]  [dim]#{tool_counter}[/]"
-                            ),
-                            border_style="yellow",
-                            expand=False,
-                        )
-                    )
+                    self.console.print(_render_tool_call(event))
                 elif event.kind == "tool_result":
-                    idx = pending.get(event.call_id, "?")
+                    if event.tool_name != "bash":
+                        continue
                     result = event.text or "(empty)"
                     truncated = len(result) > 3000
                     if truncated:
@@ -275,9 +370,7 @@ class AgentCLI:
                     self.console.print(
                         Panel(
                             body,
-                            title=Text.from_markup(
-                                f"[bold blue]← result[/]  [dim]#{idx}[/]"
-                            ),
+                            title=Text.from_markup("[bold blue]← result[/]"),
                             border_style="blue",
                             expand=False,
                         )
