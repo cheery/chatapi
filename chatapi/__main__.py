@@ -6,8 +6,9 @@ import asyncio
 import ipaddress
 import logging
 import os
+from pathlib import Path
 
-from .anthropic_backend import AnthropicBackend
+from . import auth, multi_backend
 from .server import serve_tcp, serve_unix
 
 
@@ -31,7 +32,11 @@ def _parse_tcp(spec: str) -> tuple[str, int]:
 
 
 async def _run(args: argparse.Namespace) -> None:
-    backend = AnthropicBackend()
+    auth_path = Path(args.auth) if args.auth else auth.DEFAULT_PATH
+    auth.ensure_secure(auth_path)
+    vendors = auth.load(auth_path)
+    backend = multi_backend.build(vendors)
+    logging.info("loaded %d vendor(s): %s", len(vendors), ", ".join(v.name for v in vendors))
     servers = []
     if args.socket:
         if os.path.exists(args.socket):
@@ -57,6 +62,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="chatapi-server")
     parser.add_argument("--socket", help="unix socket path to listen on")
     parser.add_argument("--tcp", type=_parse_tcp, help="HOST:PORT (loopback only)")
+    parser.add_argument("--auth", help="path to auth.json (default ~/.chatapi/auth.json)")
     parser.add_argument("--log-level", default="INFO")
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
