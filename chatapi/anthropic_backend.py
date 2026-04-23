@@ -10,7 +10,10 @@ from .backend import Backend, ContextLimitError, ContextLimitUnknown, ModelInfo
 from .chatfmt import CFMessage
 
 DEFAULT_CHAT_MODEL = "claude-sonnet-4-6"
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 8192
+# Extended-thinking budget. Models without thinking support will reject this;
+# the caller can adjust the model selection or disable thinking in the future.
+DEFAULT_THINKING_BUDGET = 1024
 
 
 def _to_anthropic(messages: list[CFMessage]) -> tuple[str | None, list[dict]]:
@@ -55,19 +58,28 @@ class AnthropicBackend(Backend):
 
     async def stream_complete(
         self, model: str, messages: list[CFMessage]
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[tuple[str, str]]:
         system, msgs = _to_anthropic(messages)
         kwargs: dict = {
             "model": model,
             "max_tokens": DEFAULT_MAX_TOKENS,
             "messages": msgs,
+            "thinking": {"type": "enabled", "budget_tokens": DEFAULT_THINKING_BUDGET},
         }
         if system is not None:
             kwargs["system"] = system
         try:
             async with self._client.messages.stream(**kwargs) as stream:
-                async for text in stream.text_stream:
-                    yield text
+                async for event in stream:
+                    if getattr(event, "type", None) != "content_block_delta":
+                        continue
+                    delta = event.delta
+                    dtype = getattr(delta, "type", None)
+                    if dtype == "thinking_delta":
+                        yield ("think", delta.thinking)
+                    elif dtype == "text_delta":
+                        yield ("assistant", delta.text)
+                    # signature_delta and other delta types are ignored for v0.
         except anthropic.BadRequestError as e:
             msg = str(e).lower()
             if "context" in msg or "too long" in msg or "max_tokens" in msg:

@@ -60,6 +60,55 @@ def think(content: str) -> CFMessage:
     return CFMessage(tag="think", body=content)
 
 
+CONT_TAG = "_"
+
+
+def cont(content: str | None = None, **meta: Any) -> CFMessage:
+    """Build a streaming continuation chunk (tag '_').
+
+    Body is appended to the parent block's body; keyword args (which must
+    start with '_') become meta entries to merge into the parent's meta.
+    """
+    msg = CFMessage(tag=CONT_TAG)
+    if content is not None:
+        msg.body = content
+    for k, v in meta.items():
+        if not k.startswith("_"):
+            raise ValueError(f"continuation accepts only meta kwargs (start with _): {k}")
+        msg.meta[k[1:]] = v
+    return msg
+
+
+def merge_chunks(chunks) -> list[CFMessage]:
+    """Fold a sequence of streamed chunks into complete blocks.
+
+    A chunk with a non-'_' tag opens a new block, carrying its tag, args,
+    kwargs, body, and meta. A '_' chunk extends the most recent block:
+    its body is appended and its meta is merged in (last write wins).
+    """
+    blocks: list[CFMessage] = []
+    for chunk in chunks:
+        if chunk.tag == CONT_TAG:
+            if not blocks:
+                raise ValueError("continuation chunk arrived before any block")
+            current = blocks[-1]
+            if chunk.body is not None:
+                current.body = (current.body or "") + chunk.body
+            for k, v in chunk.meta.items():
+                current.meta[k] = v
+        else:
+            blocks.append(
+                CFMessage(
+                    tag=chunk.tag,
+                    args=list(chunk.args),
+                    kwargs=dict(chunk.kwargs),
+                    body=chunk.body,
+                    meta=dict(chunk.meta),
+                )
+            )
+    return blocks
+
+
 def _check_name(name: str) -> None:
     if not _NAME_RE.fullmatch(name):
         raise ValueError(f"invalid chatfmt name: {name!r}")

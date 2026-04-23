@@ -73,18 +73,29 @@ async def main(socket_path: str) -> None:
 
     print(">> complete?")
     mid = client.next_id()
-    print("   <- ", end="", flush=True)
-    pieces: list[str] = []
+    chunks: list[chatfmt.CFMessage] = []
     async for m in client.request("complete?", str(mid), session_id, payload=b""):
         if m.name == "complete*!":
-            chunk = m.payload.decode("utf-8", errors="replace")
-            pieces.append(chunk)
-            print(chunk, end="", flush=True)
+            cf = chatfmt.decode_message(m.payload)
+            chunks.append(cf)
+            if cf.tag == chatfmt.CONT_TAG:
+                if cf.body:
+                    print(cf.body, end="", flush=True)
+            else:
+                if chunks[:-1]:
+                    print()
+                print(f"   [{cf.tag}] ", end="", flush=True)
+                if cf.body:
+                    print(cf.body, end="", flush=True)
         elif m.name == "complete!":
-            print()  # newline
+            print()
         elif m.name in ("aborted!", "refuse!", "context_limit_reached!"):
             print(f"\n   !! {m.name} {m.args} {m.payload!r}")
-    print(f"   (assembled {len(''.join(pieces))} chars)")
+    blocks = chatfmt.merge_chunks(chunks)
+    for b in blocks:
+        body_len = len(b.body or "")
+        meta = f" meta={b.meta}" if b.meta else ""
+        print(f"   ({b.tag}: {body_len} chars{meta})")
 
     print(">> end?")
     mid = client.next_id()

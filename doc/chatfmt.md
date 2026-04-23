@@ -71,6 +71,13 @@ The special character codes are listed below:
 
 Messages are written in python call format for convenience.
 
+### Continuation prompt
+
+The continuation continues the previous message,
+these are only allowed as deltas.
+
+    _(content:str, **_meta_fields)
+
 ### System prompt
 
 The system prompt starts a message sequence and describes
@@ -86,7 +93,7 @@ Assistant message is a message printed to the user as it.
 
 ### Think -message
 
-Think message it though process of the bot, it can be printed
+Think message is though process of the llm, it can be printed
 of not printed to the user.
 
     think(content:str)

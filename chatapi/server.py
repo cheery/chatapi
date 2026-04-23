@@ -237,11 +237,25 @@ async def _h_complete(conn: Connection, msg: protocol.Message) -> None:
             return
         session.messages.extend(extra)
 
-    collected: list[str] = []
+    # Each backend yields (tag, delta). The first chunk for each block carries
+    # the block's tag (and may carry args/kwargs/meta in the future); follow-on
+    # deltas in the same block are emitted with tag '_' so the client can
+    # accumulate body and meta into the open block. Session history records
+    # the merged blocks via chatfmt.merge_chunks.
+    chunks: list[chatfmt.CFMessage] = []
     try:
-        async for delta in conn.backend.stream_complete(session.model, session.messages):
-            collected.append(delta)
-            await conn.sender.send("complete*!", mid, session.id, payload=delta.encode("utf-8"))
+        async for tag, delta in conn.backend.stream_complete(session.model, session.messages):
+            if chunks and chunks[-1].tag != chatfmt.CONT_TAG and chunks[-1].tag == tag:
+                chunk_msg = chatfmt.cont(content=delta)
+            elif chunks and chunks[-1].tag == chatfmt.CONT_TAG and _last_block_tag(chunks) == tag:
+                chunk_msg = chatfmt.cont(content=delta)
+            else:
+                chunk_msg = chatfmt.CFMessage(tag=tag, body=delta)
+            chunks.append(chunk_msg)
+            await conn.sender.send(
+                "complete*!", mid, session.id,
+                payload=chatfmt.encode_message(chunk_msg),
+            )
     except ContextLimitError:
         await conn.sender.send("context_limit_reached!", mid, session.id, payload=b"")
         return
@@ -250,9 +264,15 @@ async def _h_complete(conn: Connection, msg: protocol.Message) -> None:
         await conn.sender.send("aborted!", mid, session.id, payload=b"")
         raise
 
-    full = "".join(collected)
-    session.messages.append(chatfmt.assistant(full))
+    session.messages.extend(chatfmt.merge_chunks(chunks))
     await conn.sender.send("complete!", mid, session.id, payload=b"")
+
+
+def _last_block_tag(chunks: list[chatfmt.CFMessage]) -> str | None:
+    for c in reversed(chunks):
+        if c.tag != chatfmt.CONT_TAG:
+            return c.tag
+    return None
 
 
 async def _h_abort(conn: Connection, msg: protocol.Message) -> None:

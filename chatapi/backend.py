@@ -28,7 +28,12 @@ class Backend(Protocol):
 
     def stream_complete(
         self, model: str, messages: list[CFMessage]
-    ) -> AsyncIterator[str]: ...
+    ) -> AsyncIterator[tuple[str, str]]:
+        """Yield (tag, delta) pairs. Tag is a chatfmt message tag such as
+        'think' or 'assistant'; delta is a text fragment to append within
+        the current block. Consecutive yields with the same tag belong to
+        the same logical block; a tag change opens a new block."""
+        ...
 
     async def context_limit(
         self, model: str, messages: list[CFMessage]

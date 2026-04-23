@@ -24,10 +24,14 @@ class FakeBackend(Backend):
     def default_model(self, flavor):
         return ModelInfo("fake-smart", "chat")
 
-    async def stream_complete(self, model, messages) -> AsyncIterator[str]:
+    async def stream_complete(self, model, messages) -> AsyncIterator[tuple[str, str]]:
         self.calls.append((model, list(messages)))
-        for chunk in ("hel", "lo, ", "world!"):
-            yield chunk
+        # Emit one think block followed by an assistant block.
+        yield ("think", "let me ")
+        yield ("think", "think...")
+        yield ("assistant", "hel")
+        yield ("assistant", "lo, ")
+        yield ("assistant", "world!")
 
     async def context_limit(self, model, messages):
         raise ContextLimitUnknown(model)
@@ -90,8 +94,14 @@ async def test_full_round_trip(server_socket):
 
     # complete?
     msgs = await _drain(client.request("complete?", "12", sid, payload=b""))
-    deltas = [m.payload.decode() for m in msgs if m.name == "complete*!"]
-    assert "".join(deltas) == "hello, world!"
+    chunks = [chatfmt.decode_message(m.payload) for m in msgs if m.name == "complete*!"]
+    # Wire shape: first chunk per block carries the tag; follow-ons use '_'.
+    assert [c.tag for c in chunks] == ["think", "_", "assistant", "_", "_"]
+    blocks = chatfmt.merge_chunks(chunks)
+    assert [(b.tag, b.body) for b in blocks] == [
+        ("think", "let me think..."),
+        ("assistant", "hello, world!"),
+    ]
     assert msgs[-1].name == "complete!"
     # backend received the user message
     model, history = backend.calls[-1]
@@ -125,7 +135,7 @@ async def test_complete_aborts_cleanly(server_socket):
     class SlowBackend(FakeBackend):
         async def stream_complete(self, model, messages):
             for chunk in ("a", "b", "c"):
-                yield chunk
+                yield ("assistant", chunk)
                 await asyncio.sleep(0.05)
 
     # Replace backend by spinning up a fresh server with a slow one.
