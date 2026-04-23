@@ -272,7 +272,9 @@ async def _h_complete(conn: Connection, msg: protocol.Message) -> None:
 
     if chunks:
         at_iso = datetime.now(timezone.utc).isoformat(timespec="minutes")
-        meta_kwargs: dict = {"_at": at_iso, "_time": time.monotonic() - t0}
+        elapsed = time.monotonic() - t0
+        elapsed_val: int | float = int(round(elapsed)) if elapsed >= 10 else round(elapsed, 3)
+        meta_kwargs: dict = {"_at": at_iso, "_time": elapsed_val}
         if "output_tokens" in usage:
             meta_kwargs["_tokens"] = usage["output_tokens"]
         trailing = chatfmt.cont(**meta_kwargs)
