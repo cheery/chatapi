@@ -28,11 +28,11 @@ class Backend(Protocol):
 
     def stream_complete(
         self, model: str, messages: list[CFMessage], usage_out: dict | None = None,
-    ) -> AsyncIterator[tuple[str, str]]:
-        """Yield (tag, delta) pairs. Tag is a chatfmt message tag such as
-        'think' or 'assistant'; delta is a text fragment to append within
-        the current block. Consecutive yields with the same tag belong to
-        the same logical block; a tag change opens a new block.
+    ) -> AsyncIterator[CFMessage]:
+        """Yield chatfmt chunks. A chunk with a non-'_' tag opens a new
+        block (carrying its tag, args, kwargs, and optionally an initial
+        body). A chunk with tag '_' (see chatfmt.cont) extends the most
+        recent open block — its body is appended and its meta merged in.
 
         If usage_out is supplied, the backend may write known usage figures
         into it (e.g. {"output_tokens": N}) for the server to surface on the

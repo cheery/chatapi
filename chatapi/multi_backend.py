@@ -87,7 +87,7 @@ class MultiBackend(Backend):
 
     async def stream_complete(
         self, model: str, messages: list[CFMessage], usage_out: dict | None = None,
-    ) -> AsyncIterator[tuple[str, str]]:
+    ) -> AsyncIterator[CFMessage]:
         backend, native = self._resolve(model)
         async for chunk in backend.stream_complete(native, messages, usage_out=usage_out):
             yield chunk

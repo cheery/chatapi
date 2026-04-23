@@ -60,6 +60,33 @@ def think(content: str) -> CFMessage:
     return CFMessage(tag="think", body=content)
 
 
+def tool(name: str, content: str, description: str | None = None) -> CFMessage:
+    """Declare a tool available to the model.
+
+    Body carries the JSON input schema as text. Place tool() messages after
+    system() and before user() turns; one message per tool.
+    """
+    kwargs: dict = {}
+    if description is not None:
+        kwargs["description"] = description
+    return CFMessage(tag="tool", args=[name], kwargs=kwargs, body=content)
+
+
+def call(id: str, name: str, content: str = "") -> CFMessage:
+    """An assistant-originated tool invocation awaiting a matching ret().
+
+    Body is the JSON input object as text; it may arrive in streaming
+    fragments and be merged via merge_chunks.
+    """
+    return CFMessage(tag="call", args=[id, name], body=content)
+
+
+def ret(id: str, content: str, error: bool = False) -> CFMessage:
+    """Result of a tool invocation, returned to the model on the next turn."""
+    meta: dict = {"error": True} if error else {}
+    return CFMessage(tag="ret", args=[id], body=content, meta=meta)
+
+
 CONT_TAG = "_"
 
 

@@ -3,12 +3,15 @@ import pytest
 from chatapi.chatfmt import (
     CFMessage,
     assistant,
+    call,
     decode_file,
     decode_message,
     encode_file,
     encode_message,
     make,
+    ret,
     system,
+    tool,
     user,
 )
 

@@ -24,14 +24,14 @@ class FakeBackend(Backend):
     def default_model(self, flavor):
         return ModelInfo("fake-smart", "chat")
 
-    async def stream_complete(self, model, messages, usage_out=None) -> AsyncIterator[tuple[str, str]]:
+    async def stream_complete(self, model, messages, usage_out=None) -> AsyncIterator[chatfmt.CFMessage]:
         self.calls.append((model, list(messages)))
         # Emit one think block followed by an assistant block.
-        yield ("think", "let me ")
-        yield ("think", "think...")
-        yield ("assistant", "hel")
-        yield ("assistant", "lo, ")
-        yield ("assistant", "world!")
+        yield chatfmt.CFMessage(tag="think", body="let me ")
+        yield chatfmt.cont(content="think...")
+        yield chatfmt.CFMessage(tag="assistant", body="hel")
+        yield chatfmt.cont(content="lo, ")
+        yield chatfmt.cont(content="world!")
         if usage_out is not None:
             usage_out["output_tokens"] = 7
 
@@ -97,7 +97,7 @@ async def test_full_round_trip(server_socket):
     # complete?
     msgs = await _drain(client.request("complete?", "12", sid, payload=b""))
     chunks = [chatfmt.decode_message(m.payload) for m in msgs if m.name == "complete*!"]
-    # Wire shape: first chunk per block carries the tag; follow-ons use '_'.
+    # Wire shape: backend yields CFMessages directly; follow-ons use '_'.
     # The trailing '_' chunk carries server-side timing/usage meta.
     assert [c.tag for c in chunks] == ["think", "_", "assistant", "_", "_", "_"]
     blocks = chatfmt.merge_chunks(chunks)
@@ -151,7 +151,7 @@ async def test_complete_aborts_cleanly(server_socket):
     class SlowBackend(FakeBackend):
         async def stream_complete(self, model, messages, usage_out=None):
             for chunk in ("a", "b", "c"):
-                yield ("assistant", chunk)
+                yield chatfmt.CFMessage(tag="assistant", body=chunk)
                 await asyncio.sleep(0.05)
 
     # Replace backend by spinning up a fresh server with a slow one.

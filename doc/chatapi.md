@@ -177,5 +177,37 @@ and server will respond with: `context_limit!(ID, X, used, total)` where used an
 
 Only the client can cease chat sessions. But server may always `refuse!(ID, X, reason)` for different reasons.
 
+## Tool use
+
+Tools are declared as chatfmt tool() messages in the message history.
+When the model decides to call a tool, the server streams a call() block
+inside the complete*! response. The client executes the tool and sends
+the result back via message? as a ret() block, then issues another
+complete? to continue the conversation.
+
+Example of a tool-mediated turn:
+
+    # Client declares a tool and sends a user message:
+    client: message?(20, X, system("be helpful") tool("search", schema, description="Search") user("find X"))
+    server: message!(20, X, "")
+
+    # Completion: model calls the tool
+    client: complete?(22, X, "")
+    server: complete*!(22, X, think(""))
+    server: complete*!(22, X, cont("let me search..."))
+    server: complete*!(22, X, call("toolu_01", "search", ""))
+    server: complete*!(22, X, cont('{"q":"X"}'))
+    server: complete*!(22, X, cont(_at=..., _time=..., _tokens=...))
+    server: complete!(22, X, "")
+
+    # Client sends tool result and continues:
+    client: message?(24, X, ret("toolu_01", '{"hits":[...]}'))
+    server: message!(24, X, "")
+
+    client: complete?(26, X, "")
+    server: complete*!(26, X, assistant("Here are the results."))
+    server: complete*!(26, X, cont(_at=..., _time=..., _tokens=...))
+    server: complete!(26, X, "")
+
 
 This protocol is prospective as long as first implementation is not implemented.

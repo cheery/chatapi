@@ -239,24 +239,16 @@ async def _h_complete(conn: Connection, msg: protocol.Message) -> None:
             return
         session.messages.extend(extra)
 
-    # Each backend yields (tag, delta). The first chunk for each block carries
-    # the block's tag (and may carry args/kwargs/meta in the future); follow-on
-    # deltas in the same block are emitted with tag '_' so the client can
-    # accumulate body and meta into the open block. Session history records
-    # the merged blocks via chatfmt.merge_chunks.
+    # Each backend yields CFMessage chunks. A non-'_' tag opens a new block;
+    # tag '_' is a continuation that extends the most recent block.
+    # Session history records the merged blocks via chatfmt.merge_chunks.
     chunks: list[chatfmt.CFMessage] = []
     usage: dict = {}
     t0 = time.monotonic()
     try:
-        async for tag, delta in conn.backend.stream_complete(
+        async for chunk_msg in conn.backend.stream_complete(
             session.model, session.messages, usage_out=usage,
         ):
-            if chunks and chunks[-1].tag != chatfmt.CONT_TAG and chunks[-1].tag == tag:
-                chunk_msg = chatfmt.cont(content=delta)
-            elif chunks and chunks[-1].tag == chatfmt.CONT_TAG and _last_block_tag(chunks) == tag:
-                chunk_msg = chatfmt.cont(content=delta)
-            else:
-                chunk_msg = chatfmt.CFMessage(tag=tag, body=delta)
             chunks.append(chunk_msg)
             await conn.sender.send(
                 "complete*!", mid, session.id,
@@ -287,12 +279,6 @@ async def _h_complete(conn: Connection, msg: protocol.Message) -> None:
     session.messages.extend(chatfmt.merge_chunks(chunks))
     await conn.sender.send("complete!", mid, session.id, payload=b"")
 
-
-def _last_block_tag(chunks: list[chatfmt.CFMessage]) -> str | None:
-    for c in reversed(chunks):
-        if c.tag != chatfmt.CONT_TAG:
-            return c.tag
-    return None
 
 
 async def _h_abort(conn: Connection, msg: protocol.Message) -> None:

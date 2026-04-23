@@ -104,8 +104,32 @@ User message is user's response:
 
     user(content:str)
 
-### Footnote
+### Tool declaration
 
-Message vocabulary is still too thin for real agent work.
-But as we develop the first implementation, we will grow it.
+Tool declaration introduces a tool the model may call.
+Placed after system prompt and before user turns.
+One tool message per tool.
+
+    tool(name:str, content:json_schema, description:str=...)
+
+Body carries the JSON input schema as text.
+
+### Tool call
+
+The assistant invokes a tool. The call is forwarded to the client,
+which executes the tool and replies with a matching ret message.
+
+    call(id:str, name:str, content:json_input)
+
+The body is the JSON input object. During streaming the body
+arrives in fragments via continuation chunks that merge together.
+
+### Tool return
+
+The client returns the result of a tool invocation back to the model.
+
+    ret(id:str, content:result, _error:boolean)
+
+Body is the result as text (JSON or plain text).
+The `_error` meta flag is set to true if the tool failed.
 

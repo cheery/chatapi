@@ -11,7 +11,7 @@ import pytest
 
 from chatapi import auth, multi_backend
 from chatapi.backend import Backend, ContextLimitUnknown, ModelInfo
-from chatapi.chatfmt import CFMessage, user
+from chatapi.chatfmt import CFMessage, assistant, user
 from chatapi.multi_backend import MultiBackend
 
 
@@ -69,7 +69,7 @@ class _Stub(Backend):
     async def stream_complete(self, model, messages, usage_out=None):
         self.last_call = (model, list(messages))
         for d in self._deltas:
-            yield ("assistant", f"{self._tag}:{d}")
+            yield CFMessage(tag="assistant", body=f"{self._tag}:{d}")
 
     async def context_limit(self, model, messages):
         raise ContextLimitUnknown(model)
@@ -100,7 +100,7 @@ async def test_stream_complete_dispatches_by_prefix():
     chunks = []
     async for c in multi.stream_complete("v2/alt", [user("hi")]):
         chunks.append(c)
-    assert chunks == [("assistant", "B:x")]
+    assert chunks == [CFMessage(tag="assistant", body="B:x")]
     assert b.last_call is not None and b.last_call[0] == "alt"
     assert a.last_call is None
 
