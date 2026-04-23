@@ -40,7 +40,7 @@ The sections are encoded as follows:
 
     tag, keyword, text, body, are UTF-8 strings
 
-    body uses \nn -escaping syntax for <0x20 -characters and bacslah itself, excluding \r\n\t
+    body uses \nn -escaping syntax for <0x20 -characters and backslash itself, excluding \r\n\t
     That is. \nn syntax is used for everything else except \r\n\t that pass as-it. Backslash itself is escaped as \5c.
 
     blob is a sequence of bytes preceded by it's length in vlq format (as described in chatapi.md:low level details)
@@ -99,6 +99,6 @@ User message is user's response:
 
 ### Footnote
 
-Message vocabulary is still too thing for real agent work.
+Message vocabulary is still too thin for real agent work.
 But as we develop the first implementation, we will grow it.
 

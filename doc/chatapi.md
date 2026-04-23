@@ -33,6 +33,8 @@ The VLQ is encoded as follows:
         vlq.reverse()
         return vlq
 
+Max VLQ length is 4 bytes. That is `4*7=28` bits
+
 A message could be encoded like this:
 
     def encode_message(message):
@@ -46,6 +48,7 @@ Message is structured as follows:
 
     arg is utf-8 text, not containing < 0x20 -characters.
     payload can contain any byte.
+    But payload is always arbitrary text or chatfmt formatted.
 
     GS = 0x1d
     RS = 0x1e
@@ -63,7 +66,10 @@ Message IDs: The participant that connected can produce even message IDs when it
              The server produces odd message IDs when it instantiates a message.
 
 The first arg is the name of the call, and the name describes a flavor of the message.
-The second arg is the message ID encoded as text integer.
+The second arg is the message ID encoded as decimal text.
+
+Message ID's can be reused.
+Message IDs can be reused after a non-stream-marked response with that given ID occurs.
 
 There are several suffixes to the messages, translated to their python-counterparts:
 
@@ -78,7 +84,7 @@ There's a version handshake.
 
 The server responds with one of these:
 
-    version!(0)
+    version!(0, "")
     not_supported!(0, highest_supported_version)
 
 If the server supports the version, it should respond with it, and from that on use the given version.
@@ -86,16 +92,36 @@ This version that you're reading right now is labeled as "0".
 
 Client may query what is supported by:
 
-   supported?(0, "")
+   supported?(2, "")
 
 And the server responds with multiple responses for each supported version.
 From earliest to latest.
 
-   supported*!(0, X)
-   supported*!(0, Y)
-   supported!(0, Z)
+   supported*!(2, A)
+   supported*!(2, B)
+   supported!(2, C)
 
-The message format will grow and change as the first version is implemented.
+If there's nothing the client supports, the client will send the message `bye(reason)`,
+reason can be stated "unsupported version K", where K is the version client expected.
+
+The models available can be enumerated like follows:
+
+    models?(4, flavor or blank for all)
+
+The server answers with model names:
+
+    models*!(4, "a", "chat", "")
+    models*!(4, "b", "chat", "")
+    models*!(4, "o", "word-embed", "")
+    models!(4, "q", "word-embed", "")
+
+Likewise, the default model can be requested like this:
+
+    default_model?(6, flavor, "")
+
+And the server can answer it:
+
+    default_model!(6, "foo", flavor, "")
 
 ## Termination of stream
 
@@ -103,7 +129,7 @@ Both client and server may terminate the stream by writing:
 
   bye(reason)
 
-The bye, as it is the last message, doesn't need a message ID.
+The bye is special as it is the last message, that it doesn't need a message ID.
 client doesn't need to describe the reason for quitting (it can be ""), it is assumed that it was a normal quit.
 
 ## Authentication
@@ -119,26 +145,37 @@ chatfmt.md is used as the format for autoregressive large language models.
 Examples of interactions:
 
     client: chat?(2, "")
-    server: chat!(2, X) # X indicates an ID given to the chat session.
+    server: chat!(2, X, "") # X indicates an ID given to the chat session, X is never a payload.
 
-    client: message*?(4, X, chatfmt formatted request continues)
-    client: message*?(4, X, chatfmt formatted request continues)
-    client: message?(4, X, chatfmt formatted request ended)
+    client: model?(2, X, "b", "")
+    server: model!(2, X, "b", "")
 
-    server: message*!(4, X, chatfmt formatted response continues)
-    server: message*!(4, X, chatfmt formatted response continues)
-    server: message!(4, X, chatfmt formatted response ended)
+    client: message*?(6, X, chatfmt formatted request continues)
+    client: message*?(6, X, chatfmt formatted request continues)
+    client: message?(6, X, chatfmt formatted request ended)
+    server: message!(6, X, "")
 
-    client: message?(6, X, chatfmt formatted request)
-    server: message*!(6, X, chatfmt formatted response continues)
-    server: message*!(6, X, chatfmt formatted response continues)
-    client: abort?(8, X)
-    server: abort!(8, X)
-    server: aborted!(6, X)
+    client: complete?(8, X, chatfmt formatted request or blank)
+    server: complete*!(8, X, chatfmt formatted response continues)
+    server: complete*!(8, X, chatfmt formatted response continues)
+    server: complete!(8, X, chatfmt formatted response ended)
 
-    client: end?(8, X)
-    server: end!(8, "")
+    client: complete?(10, X, chatfmt formatted request)
+    server: complete*!(10, X, chatfmt formatted response continues)
+    server: complete*!(10, X, chatfmt formatted response continues)
+    client: abort?(12, X, "")
+    server: abort!(12, X, "")
+    server: aborted!(10, X, "") # server tells explicitly that given message was aborted.
 
-Server may also respond with `ending(message_id, X, reason)` at any time.
+    client: end?(14, X, "")
+    server: end!(14, X, "")
+
+Also, the complete may fail due to token limit, the server will respond with `context_limit_reached!(ID, X, "")`.
+
+Context limit may be requested by: `context_limit?(ID, X)`
+and server will respond with: `context_limit!(ID, X, used, total)` where used and total are text digits.
+
+Only the client can cease chat sessions. But server may always `refuse!(ID, X, reason)` for different reasons.
+
 
 This protocol is prospective as long as first implementation is not implemented.
