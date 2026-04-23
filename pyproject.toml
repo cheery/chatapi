@@ -9,10 +9,12 @@ description = "Local agent server speaking the chatapi protocol"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=0.89,<1",
+    "textual>=3.0,<9",
 ]
 
 [project.scripts]
 chatapi-server = "chatapi.__main__:main"
+chatapi-agent = "chatapi.agent_tui:main"
 
 [tool.setuptools.packages.find]
 include = ["chatapi*"]
