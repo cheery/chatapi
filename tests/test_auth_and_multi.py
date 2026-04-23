@@ -122,13 +122,57 @@ async def test_naked_model_name_rejected():
 
 
 def test_build_skips_unknown_api(tmp_path, caplog):
-    multi_backend.register("dummy", lambda key: _Stub([ModelInfo("only")], ModelInfo("only"), ["d"], "D"))
+    multi_backend.register("dummy", lambda v: _Stub([ModelInfo("only")], ModelInfo("only"), ["d"], "D"))
     vendors = [
         auth.Vendor("good", "dummy", "k"),
         auth.Vendor("bad", "made-up", "k"),
     ]
     backend = multi_backend.build(vendors)
     assert backend.vendors() == ["good"]
+
+
+def test_auth_load_with_api_url(tmp_path):
+    p = _write_auth(tmp_path, {
+        "proxied": {"api": "anthropic", "key": "k", "api_url": "https://proxy.example/v1"},
+        "default": {"api": "anthropic", "key": "k2"},
+    })
+    vendors = auth.load(p)
+    assert vendors[0].api_url == "https://proxy.example/v1"
+    assert vendors[1].api_url is None
+
+
+def test_auth_invalid_api_url(tmp_path):
+    p = _write_auth(tmp_path, {"v": {"api": "anthropic", "key": "k", "api_url": ""}})
+    with pytest.raises(ValueError):
+        auth.load(p)
+
+
+def test_anthropic_factory_passes_base_url(monkeypatch):
+    captured = {}
+
+    class FakeAsyncAnthropic:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    import anthropic as anth_mod
+
+    monkeypatch.setattr(anth_mod, "AsyncAnthropic", FakeAsyncAnthropic)
+
+    # Re-import the backend module so it picks up the patched class.
+    import importlib
+
+    from chatapi import anthropic_backend as ab
+    importlib.reload(ab)
+    multi_backend.register("anthropic", lambda v: ab.AnthropicBackend(api_key=v.key, base_url=v.api_url))
+
+    multi_backend.build([auth.Vendor("p", "anthropic", "k1", api_url="https://proxy/v1")])
+    assert captured["api_key"] == "k1"
+    assert captured["base_url"] == "https://proxy/v1"
+
+    captured.clear()
+    multi_backend.build([auth.Vendor("d", "anthropic", "k2")])
+    assert captured["api_key"] == "k2"
+    assert "base_url" not in captured  # omitted when None
 
 
 def test_build_no_vendors_raises():

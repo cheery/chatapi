@@ -12,8 +12,8 @@ log = logging.getLogger(__name__)
 
 VENDOR_SEP = "/"
 
-# Mapping of "api" name in auth.json -> factory(api_key) -> Backend.
-BackendFactory = Callable[[str], Backend]
+# Mapping of "api" name in auth.json -> factory(vendor) -> Backend.
+BackendFactory = Callable[[Vendor], Backend]
 _REGISTRY: dict[str, BackendFactory] = {}
 
 
@@ -25,7 +25,7 @@ def _builtin_registry() -> None:
     # Lazy import so the test suite can stub this without importing anthropic.
     from .anthropic_backend import AnthropicBackend
 
-    register("anthropic", lambda key: AnthropicBackend(api_key=key))
+    register("anthropic", lambda v: AnthropicBackend(api_key=v.key, base_url=v.api_url))
 
 
 _builtin_registry()
@@ -38,8 +38,8 @@ def build(vendors: list[Vendor]) -> "MultiBackend":
         if factory is None:
             log.warning("vendor %s: unknown api %r, skipping", v.name, v.api)
             continue
-        backends[v.name] = factory(v.key)
-        log.info("vendor %s ready (api=%s)", v.name, v.api)
+        backends[v.name] = factory(v)
+        log.info("vendor %s ready (api=%s, base_url=%s)", v.name, v.api, v.api_url or "default")
     if not backends:
         raise RuntimeError("no usable vendors found in auth.json")
     return MultiBackend(backends)

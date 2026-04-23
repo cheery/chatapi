@@ -16,6 +16,7 @@ class Vendor:
     name: str
     api: str
     key: str
+    api_url: str | None = None
 
 
 def load(path: Path | str | None = None) -> list[Vendor]:
@@ -37,7 +38,10 @@ def load(path: Path | str | None = None) -> list[Vendor]:
             raise ValueError(f"vendor {name!r}: missing or invalid 'api'")
         if not isinstance(key, str) or not key:
             raise ValueError(f"vendor {name!r}: missing or invalid 'key'")
-        out.append(Vendor(name=name, api=api, key=key))
+        api_url = entry.get("api_url")
+        if api_url is not None and (not isinstance(api_url, str) or not api_url):
+            raise ValueError(f"vendor {name!r}: 'api_url' must be a non-empty string")
+        out.append(Vendor(name=name, api=api, key=key, api_url=api_url))
     return out
 
 

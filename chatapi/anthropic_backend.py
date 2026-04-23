@@ -34,10 +34,11 @@ def _to_anthropic(messages: list[CFMessage]) -> tuple[str | None, list[dict]]:
 
 
 class AnthropicBackend(Backend):
-    def __init__(self, api_key: str | None = None):
-        self._client = anthropic.AsyncAnthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
-        )
+    def __init__(self, api_key: str | None = None, base_url: str | None = None):
+        kwargs: dict = {"api_key": api_key or os.environ.get("ANTHROPIC_API_KEY")}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = anthropic.AsyncAnthropic(**kwargs)
 
     async def list_models(self, flavor: str | None) -> list[ModelInfo]:
         if flavor not in (None, "", "chat"):
