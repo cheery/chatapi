@@ -103,6 +103,7 @@ class CodingAgent:
         self.session_id = session_id
         self.model = model
         self.working_dir = os.path.abspath(working_dir)
+        self.session_messages: list[CFMessage] = []
 
     @classmethod
     async def create(
@@ -145,6 +146,8 @@ class CodingAgent:
             await client.bye()
             raise RuntimeError(f"server refused model {model!r}")
 
+        agent = cls(client, session_id, model, working_dir)
+
         messages = [chatfmt.system(system_prompt)] + build_tools()
         mid = client.next_id()
         payload = chatfmt.encode_file(messages)
@@ -153,10 +156,74 @@ class CodingAgent:
             await client.bye()
             raise RuntimeError("server refused initial message")
 
-        return cls(client, session_id, model, working_dir)
+        agent.session_messages.extend(messages)
+        return agent
+
+    async def list_models(self) -> list[str]:
+        mid = self.client.next_id()
+        models: list[str] = []
+        async for msg in self.client.request("models?", str(mid), payload=b""):
+            if msg.name == "models*!" and len(msg.args) > 1:
+                models.append(msg.args[1])
+            elif msg.name == "models!" and len(msg.args) > 1:
+                models.append(msg.args[1])
+        return models
+
+    async def set_model(self, model: str) -> None:
+        mid = self.client.next_id()
+        resp = await _simple_request(self.client, "model?", str(mid), self.session_id, model)
+        if resp.name == "refuse!":
+            raise RuntimeError(f"server refused model {model!r}")
+        self.model = model
+
+    async def abort(self) -> None:
+        mid = self.client.next_id()
+        await self.client.send("abort?", str(mid), self.session_id, payload=b"")
+        try:
+            await self.client.recv()
+        except Exception:
+            pass
+
+    def save_session(self, path: str) -> None:
+        data = chatfmt.encode_file(self.session_messages)
+        Path(path).write_bytes(data)
+
+    async def load_session(self, path: str) -> None:
+        # End current session and create a fresh one.
+        try:
+            mid = self.client.next_id()
+            await self.client.send("end?", str(mid), self.session_id, payload=b"")
+            await self.client.recv()
+        except Exception:
+            pass
+
+        mid = self.client.next_id()
+        resp = await _simple_request(self.client, "chat?", str(mid))
+        if resp.name == "refuse!":
+            raise RuntimeError("server refused to create session")
+        self.session_id = resp.args[1]
+
+        mid = self.client.next_id()
+        resp = await _simple_request(
+            self.client, "model?", str(mid), self.session_id, self.model,
+        )
+        if resp.name == "refuse!":
+            raise RuntimeError(f"server refused model {self.model!r}")
+
+        data = Path(path).read_bytes()
+        messages = chatfmt.decode_file(data)
+        mid = self.client.next_id()
+        payload = chatfmt.encode_file(messages)
+        resp = await _simple_request(
+            self.client, "message?", str(mid), self.session_id, payload=payload,
+        )
+        if resp.name == "refuse!":
+            raise RuntimeError("server refused loaded session")
+        self.session_messages = list(messages)
 
     async def send_user_message(self, text: str) -> AsyncIterator[StreamEvent]:
         msg = chatfmt.user(text)
+        self.session_messages.append(msg)
         mid = self.client.next_id()
         payload = chatfmt.encode_file([msg])
         resp = await _simple_request(
@@ -198,6 +265,7 @@ class CodingAgent:
                     return
 
             blocks = chatfmt.merge_chunks(chunks)
+            self.session_messages.extend(blocks)
             call_blocks = [b for b in blocks if b.tag == "call"]
 
             if not call_blocks:
@@ -225,9 +293,9 @@ class CodingAgent:
                     call_id=call_id,
                     text=result_content,
                 )
-                ret_messages.append(
-                    chatfmt.ret(call_id, result_content, error=is_error)
-                )
+                ret_msg = chatfmt.ret(call_id, result_content, error=is_error)
+                ret_messages.append(ret_msg)
+                self.session_messages.append(ret_msg)
 
             mid = self.client.next_id()
             payload = chatfmt.encode_file(ret_messages)
