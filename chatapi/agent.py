@@ -51,10 +51,11 @@ def _edit_schema() -> str:
     return json.dumps({
         "type": "object",
         "properties": {
+            "path": {"type": "string", "description": "Relative or absolute path to the file"},
             "oldText": {"type": "string", "description": "Exact text to find. Must be unique in the file."},
             "newText": {"type": "string", "description": "Replacement text"},
         },
-        "required": ["oldText", "newText"],
+        "required": ["path", "oldText", "newText"],
     })
 
 

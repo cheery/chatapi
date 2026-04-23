@@ -13,7 +13,24 @@ from textual.widgets import Footer, Header, Input, Static
 
 from .agent import CodingAgent, StreamEvent
 
-DEFAULT_PROMPT_PATH = Path(__file__).resolve().parent.parent / "doc" / "prompt.md"
+DEFAULT_SYSTEM_PROMPT = """\
+You are an expert coding assistant. You help users with coding tasks by reading files, executing commands, editing code, and writing new files.
+
+Available tools:
+- read: Read file contents
+- bash: Execute bash commands
+- edit: Make surgical edits to files
+- write: Create or overwrite files
+
+Guidelines:
+- Use bash for file operations like ls, grep, find
+- Use read to examine files before editing
+- Use edit for precise changes (old text must match exactly)
+- Use write only for new files or complete rewrites
+- When summarizing your actions, output plain text directly - do NOT use cat or bash to display what you did
+- Be concise in your responses
+- Show file paths clearly when working with files
+"""
 
 _CSS = """
 Screen {
@@ -80,7 +97,7 @@ class AgentApp(App):
         tcp_port: int | None = None,
         model: str | None = None,
         working_dir: str = ".",
-        prompt_path: Path = DEFAULT_PROMPT_PATH,
+        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     ):
         super().__init__()
         self.socket_path = socket_path
@@ -88,7 +105,7 @@ class AgentApp(App):
         self.tcp_port = tcp_port
         self.model = model
         self.working_dir = working_dir
-        self.prompt_path = prompt_path
+        self.system_prompt = system_prompt
         self.agent: CodingAgent | None = None
         self._agent_task: asyncio.Task | None = None
         self._assistant_widget: Static | None = None
@@ -103,7 +120,6 @@ class AgentApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        prompt = self.prompt_path.read_text()
         try:
             self.agent = await CodingAgent.create(
                 socket_path=self.socket_path,
@@ -111,7 +127,7 @@ class AgentApp(App):
                 tcp_port=self.tcp_port,
                 model=self.model,
                 working_dir=self.working_dir,
-                system_prompt=prompt,
+                system_prompt=self.system_prompt,
             )
         except Exception as e:
             self._add_message("error", f"Failed to connect: {e}")
@@ -205,7 +221,7 @@ def main() -> None:
     conn.add_argument("--tcp", help="HOST:PORT (loopback)")
     parser.add_argument("--model", help="model name (vendor/model)")
     parser.add_argument("-C", "--dir", default=".", help="working directory")
-    parser.add_argument("--prompt", default=str(DEFAULT_PROMPT_PATH), help="system prompt file")
+    parser.add_argument("--prompt", default=None, help="system prompt file (default: built-in)")
     args = parser.parse_args()
 
     tcp_host = tcp_port = None
@@ -214,13 +230,17 @@ def main() -> None:
         tcp_host = host
         tcp_port = int(port_s)
 
+    prompt = DEFAULT_SYSTEM_PROMPT
+    if args.prompt:
+        prompt = Path(args.prompt).read_text()
+
     app = AgentApp(
         socket_path=args.socket,
         tcp_host=tcp_host,
         tcp_port=tcp_port,
         model=args.model,
         working_dir=args.dir,
-        prompt_path=Path(args.prompt),
+        system_prompt=prompt,
     )
     app.run()
 
