@@ -22,10 +22,12 @@ def register(api: str, factory: BackendFactory) -> None:
 
 
 def _builtin_registry() -> None:
-    # Lazy import so the test suite can stub this without importing anthropic.
-    from .anthropic_backend import AnthropicBackend
-
-    register("anthropic", lambda v: AnthropicBackend(api_key=v.key, base_url=v.api_url))
+    try:
+        from .anthropic_backend import AnthropicBackend
+    except ImportError:
+        pass
+    else:
+        register("anthropic", lambda v: AnthropicBackend(api_key=v.key, base_url=v.api_url))
 
 
 _builtin_registry()

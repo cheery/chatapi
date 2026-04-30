@@ -103,6 +103,7 @@ def test_json_with_backslash_in_body():
 
 
 def _translate(messages):
+    pytest.importorskip("anthropic")
     from chatapi.anthropic_backend import _to_anthropic
     return _to_anthropic(messages)
 

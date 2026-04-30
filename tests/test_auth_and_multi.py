@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import tempfile
@@ -147,6 +148,10 @@ def test_auth_invalid_api_url(tmp_path):
         auth.load(p)
 
 
+@pytest.mark.skipif(
+    not importlib.util.find_spec("anthropic"),
+    reason="anthropic not installed",
+)
 def test_anthropic_factory_passes_base_url(monkeypatch):
     captured = {}
 

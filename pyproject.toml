@@ -8,9 +8,11 @@ version = "0.0.1"
 description = "Local agent server speaking the chatapi protocol"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.89,<1",
     "rich>=13,<15",
 ]
+
+[project.optional-dependencies]
+server = ["anthropic>=0.89,<1"]
 
 [project.scripts]
 chatapi-server = "chatapi.__main__:main"
